@@ -37,6 +37,27 @@ final class DrawerKitDemoUITests: XCTestCase {
     }
 
     func test_accessibilityAudit() throws {
-        try app.performAccessibilityAudit()
+        let audits: XCUIAccessibilityAuditType = [
+            .contrast,
+            .elementDetection,
+            .hitRegion,
+            .sufficientElementDescription,
+            .textClipped,
+            .trait,
+        ]
+
+        try app.performAccessibilityAudit(for: audits)
+    }
+
+    func test_largestDynamicTypeKeepsPrimaryContentAvailable() {
+        app.terminate()
+        app.launchArguments += [
+            "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge",
+        ]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Try edge-to-open"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["drawer.open"].exists)
     }
 }
