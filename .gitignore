@@ -1,0 +1,12 @@
+.DS_Store
+.build/
+.swiftpm/
+Derived/
+DrawerKit.xcodeproj/
+xcuserdata/
+*.xcuserstate
+
+!Examples/DrawerKitDemo/Derived/
+!Examples/DrawerKitDemo/Derived/**
+Examples/DrawerKitDemo/DrawerKitDemo.xcodeproj/xcuserdata/
+Examples/DrawerKitDemo/DrawerKitDemo.xcworkspace/xcuserdata/

@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate package manifest
+        run: swift package dump-package
+      - name: Lint formatting
+        run: swift format lint --recursive --strict Sources Tests Examples
+      - name: Run unit tests
+        run: swift test -Xswiftc -warnings-as-errors
+      - name: Build for iOS
+        run: >-
+          xcodebuild build
+          -scheme DrawerKit
+          -destination 'generic/platform=iOS Simulator'
+          SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+      - name: Run demo UI tests
+        run: >-
+          xcodebuild test
+          -workspace Examples/DrawerKitDemo/DrawerKitDemo.xcworkspace
+          -scheme DrawerKitDemo
+          -destination 'platform=iOS Simulator,name=iPhone 17'
+
+  documentation:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build DocC documentation
+        run: >-
+          xcodebuild docbuild
+          -scheme DrawerKit
+          -destination 'generic/platform=iOS Simulator'
