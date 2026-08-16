@@ -23,7 +23,9 @@ final class DrawerKitDemoUITests: XCTestCase {
         app.buttons["drawer.open"].tap()
         app.buttons["drawer.saved"].tap()
 
-        XCTAssertTrue(app.navigationBars["Saved"].waitForExistence(timeout: 1))
+        let title = app.staticTexts["main.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 1))
+        XCTAssertEqual(title.label, "Saved")
     }
 
     func test_swipingMovedContentClosesDrawer() {

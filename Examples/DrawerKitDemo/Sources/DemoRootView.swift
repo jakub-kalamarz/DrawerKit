@@ -20,6 +20,7 @@ struct DemoRootView: View {
         var configuration = DrawerConfiguration()
         configuration.width = 310
         configuration.backgroundColor = Color(uiColor: .secondarySystemBackground)
+        configuration.contentCornerRadius = 48
         configuration.contentDimOpacity = 0.04
         return configuration
     }
@@ -70,6 +71,12 @@ struct DemoRootView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 14) {
+                    Text(selectedSection)
+                        .font(.largeTitle.bold())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("main.title")
+                        .accessibilityAddTraits(.isHeader)
+
                     headerCard
 
                     ForEach(1...10, id: \.self) { index in
@@ -102,7 +109,6 @@ struct DemoRootView: View {
                 .padding(18)
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle(selectedSection)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
