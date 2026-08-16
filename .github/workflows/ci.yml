@@ -13,7 +13,7 @@ jobs:
   test:
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Validate package manifest
         run: swift package dump-package
       - name: Lint formatting
@@ -36,7 +36,7 @@ jobs:
   documentation:
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build DocC documentation
         run: >-
           xcodebuild docbuild
