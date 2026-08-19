@@ -15,8 +15,26 @@ public struct DrawerConfiguration: Equatable, Sendable {
     /// so the moved-aside content looks like the screen it came from.
     public var contentCornerRadius: CGFloat?
 
-    /// The animation used when `isOpen` changes. `nil` moves without animating.
-    public var animation: Animation? = .easeInOut(duration: 0.25)
+    /// The animation used when `isOpen` changes from outside a gesture — a toggle button, a
+    /// navigation. `nil` moves without animating. A drag release uses ``releaseDuration`` and
+    /// ``releaseBounce`` instead, so it can carry the fling's velocity.
+    public var animation: Animation? = .spring(duration: 0.35, bounce: 0.1)
+
+    /// Duration of the spring that settles a released drag. Values below zero resolve to zero.
+    public var releaseDuration: Double = 0.35
+
+    /// Bounce of the spring that settles a released drag. Values are clamped to `-1...1`; zero is
+    /// critically damped.
+    public var releaseBounce: Double = 0.1
+
+    /// Whether a released drag hands its velocity to the settling spring. Off, a flick and a slow
+    /// release settle identically, which is what makes a drawer read as animated rather than moved.
+    public var tracksReleaseVelocity: Bool = true
+
+    /// How far the panel trails the content, as a fraction of ``width``. The panel sits offset
+    /// behind the closed content and catches up as the drawer opens, fading in over the same
+    /// travel, so the two read as separate layers. Zero holds the panel still. Clamped to `0...1`.
+    public var panelParallax: CGFloat = 0.35
 
     /// Blur radius of the shadow cast by the content while it is moved aside. Values below zero
     /// resolve to zero.
@@ -45,6 +63,15 @@ public struct DrawerConfiguration: Equatable, Sendable {
     /// The fraction of ``width`` a drag must reach, or be flung past, to settle open. Values are
     /// clamped to `0...1`.
     public var openThreshold: CGFloat = 0.5
+
+    /// Whether a gesture must start out more horizontal than vertical to be taken as a drawer
+    /// drag. Off, a vertical scroll that drifts past ``minimumDragDistance`` sideways opens the
+    /// drawer.
+    public var requiresHorizontalIntent: Bool = true
+
+    /// The fraction of ``width`` a drag may travel past either end of the drawer's range, with
+    /// decaying resistance. Zero stops the drag dead at the ends. Clamped to `0...1`.
+    public var rubberBandFactor: CGFloat = 0.08
 
     // MARK: - Chrome and Feedback
 

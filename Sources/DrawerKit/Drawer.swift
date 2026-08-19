@@ -17,6 +17,14 @@ import SwiftUI
 /// Pass a ``DrawerConfiguration`` to change width, motion, gestures, chrome or side.
 @available(iOS 18.0, macOS 15.0, *)
 public struct Drawer<Panel: View, Content: View>: View {
+    /// What the drawer decided about the gesture in flight. The decision is taken once, on the
+    /// first movement, and held for the rest of the gesture so a drag can't change its mind
+    /// halfway down a scroll.
+    private enum DragIntent {
+        case tracking
+        case rejected
+    }
+
     @Binding private var isOpen: Bool
 
     private let configuration: DrawerConfiguration
@@ -26,7 +34,12 @@ public struct Drawer<Panel: View, Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.layoutDirection) private var layoutDirection
-    @GestureState private var dragOffset: CGFloat = 0
+
+    // Plain state, not `@GestureState`: a gesture state's reset transaction is empty, so a drag
+    // released short of the threshold snapped back with no animation at all. Owning the value is
+    // what lets the release be a settle rather than a cut.
+    @State private var drag: CGFloat = 0
+    @State private var dragIntent: DragIntent?
     @State private var containerWidth: CGFloat = 0
 
     /// Creates a drawer with a panel behind the main content.
@@ -51,11 +64,7 @@ public struct Drawer<Panel: View, Content: View>: View {
     /// The composed drawer hierarchy.
     public var body: some View {
         ZStack(alignment: configuration.edge.alignment) {
-            panel
-                .frame(width: width)
-                .frame(maxHeight: .infinity, alignment: .top)
-                .allowsHitTesting(isOpen)
-                .accessibilityHidden(!isOpen)
+            movedPanel
 
             movedContent
         }
@@ -63,12 +72,32 @@ public struct Drawer<Panel: View, Content: View>: View {
         .background(configuration.backgroundColor.ignoresSafeArea())
         .overlay(alignment: configuration.edge.alignment) { revealEdge }
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { containerWidth = $0 }
-        .animation(resolvedAnimation, value: isOpen)
+        // Not `.animation(_:value:)`: that overrides the ambient transaction, which would throw
+        // away the velocity spring a released drag builds. This supplies the default animation
+        // only when the change arrived without one — a host toggling `isOpen` directly.
+        .transaction(value: isOpen) { transaction in
+            if transaction.animation == nil { transaction.animation = resolvedAnimation }
+        }
+        .onChange(of: isOpen) { _, _ in
+            // Safety net for a gesture cancelled without `onEnded`, which would otherwise strand
+            // the offset. A drag settling on its own has already zeroed this.
+            if dragIntent == nil { drag = 0 }
+        }
         .sensoryFeedback(.impact(flexibility: .soft), trigger: hapticTrigger)
         .accessibilityAction(.escape, close)
     }
 
     // MARK: - Content
+
+    private var movedPanel: some View {
+        panel
+            .frame(width: width)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .offset(x: -offsetSign * parallaxDistance * (1 - progress))
+            .opacity(panelOpacity)
+            .allowsHitTesting(isOpen)
+            .accessibilityHidden(!isOpen)
+    }
 
     private var movedContent: some View {
         ZStack {
@@ -76,7 +105,7 @@ public struct Drawer<Panel: View, Content: View>: View {
                 .fill(configuration.backgroundColor)
                 .shadow(
                     color: shadowColor,
-                    radius: contentOffset == 0 ? 0 : configuration.resolvedShadowRadius
+                    radius: configuration.resolvedShadowRadius * progress
                 )
                 .ignoresSafeArea()
 
@@ -89,10 +118,9 @@ public struct Drawer<Panel: View, Content: View>: View {
                 .allowsHitTesting(!isOpen)
                 .accessibilityHidden(isOpen)
         }
+        .overlay { dimScrim }
         .overlay {
             if isOpen {
-                dimScrim
-
                 // Nothing on screen closes the drawer for VoiceOver, since the content behind it is
                 // hidden. This gives it one control to do so.
                 Button(configuration.closeAccessibilityLabel, action: close)
@@ -106,11 +134,15 @@ public struct Drawer<Panel: View, Content: View>: View {
         .simultaneousGesture(drawerGesture, including: closeGestureMask)
     }
 
+    /// Tracks the drag rather than appearing with the open state, so a half-open drawer is half
+    /// dimmed.
     @ViewBuilder
     private var dimScrim: some View {
-        if configuration.resolvedContentDimOpacity > 0 {
+        let opacity = configuration.resolvedContentDimOpacity * progress
+
+        if opacity > 0 {
             contentShape
-                .fill(Color.black.opacity(configuration.resolvedContentDimOpacity))
+                .fill(Color.black.opacity(opacity))
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
         }
@@ -139,9 +171,27 @@ public struct Drawer<Panel: View, Content: View>: View {
         DrawerMotion(requestedWidth: configuration.width, containerWidth: containerWidth).width
     }
 
+    /// Where the content sits right now, resting position plus whatever the finger has added. It
+    /// may run slightly past either end while a drag is rubber-banding.
     private var contentOffset: CGFloat {
-        let restingOffset = isOpen ? width : 0
-        return min(width, max(0, restingOffset + dragOffset))
+        (isOpen ? width : 0) + drag
+    }
+
+    /// How far through the open transition the drawer is, clamped so an overshooting drag doesn't
+    /// over-dim or over-fade anything.
+    private var progress: CGFloat {
+        guard width > 0 else { return isOpen ? 1 : 0 }
+        return min(1, max(0, contentOffset / width))
+    }
+
+    private var parallaxDistance: CGFloat {
+        width * configuration.resolvedPanelParallax
+    }
+
+    private var panelOpacity: CGFloat {
+        let parallax = configuration.resolvedPanelParallax
+        guard parallax > 0 else { return 1 }
+        return (1 - parallax) + parallax * progress
     }
 
     private var contentShape: AnyShape {
@@ -172,7 +222,11 @@ public struct Drawer<Panel: View, Content: View>: View {
     }
 
     private var resolvedAnimation: Animation? {
-        configuration.respectsReduceMotion && reduceMotion ? nil : configuration.animation
+        suppressesMotion ? nil : configuration.animation
+    }
+
+    private var suppressesMotion: Bool {
+        configuration.respectsReduceMotion && reduceMotion
     }
 
     private var hapticTrigger: Bool {
@@ -190,10 +244,7 @@ public struct Drawer<Panel: View, Content: View>: View {
             minimumDistance: configuration.resolvedMinimumDragDistance,
             coordinateSpace: .global
         )
-        .updating($dragOffset) { value, state, _ in
-            guard canTrack else { return }
-            state = normalizedTranslation(value.translation.width)
-        }
+        .onChanged(trackDrag)
         .onEnded(finishDrag)
     }
 
@@ -206,22 +257,73 @@ public struct Drawer<Panel: View, Content: View>: View {
             translation,
             isOpen: isOpen,
             width: width,
-            offsetSign: offsetSign
+            offsetSign: offsetSign,
+            rubberBandFactor: configuration.resolvedRubberBandFactor
         )
     }
 
-    private func finishDrag(_ value: DragGesture.Value) {
+    private func trackDrag(_ value: DragGesture.Value) {
         guard canTrack else { return }
+
+        if dragIntent == nil {
+            let isHorizontal =
+                !configuration.requiresHorizontalIntent
+                || DrawerMotion.beginsHorizontally(value.translation)
+            dragIntent = isHorizontal ? .tracking : .rejected
+        }
+
+        guard dragIntent == .tracking else { return }
+
+        drag = normalizedTranslation(value.translation.width)
+    }
+
+    private func finishDrag(_ value: DragGesture.Value) {
+        defer { dragIntent = nil }
+
+        guard canTrack, dragIntent == .tracking else { return }
 
         let translation = normalizedTranslation(value.translation.width)
         let predictedTranslation = normalizedTranslation(value.predictedEndTranslation.width)
 
-        isOpen = DrawerMotion.settlesOpen(
+        let settlesOpen = DrawerMotion.settlesOpen(
             isOpen: isOpen,
             width: width,
             threshold: configuration.resolvedOpenThreshold,
             translation: translation,
             predictedTranslation: predictedTranslation
+        )
+
+        let animation = releaseAnimation(
+            velocity: value.velocity.width,
+            from: contentOffset,
+            to: settlesOpen ? width : 0
+        )
+
+        withAnimation(animation) {
+            drag = 0
+            isOpen = settlesOpen
+        }
+    }
+
+    /// The spring a released drag settles on. It carries the lift-off velocity, so the content
+    /// keeps the speed the finger gave it instead of stopping and starting again.
+    private func releaseAnimation(
+        velocity: CGFloat,
+        from currentOffset: CGFloat,
+        to targetOffset: CGFloat
+    ) -> Animation? {
+        guard !suppressesMotion else { return nil }
+        guard configuration.tracksReleaseVelocity else { return configuration.animation }
+
+        return .interpolatingSpring(
+            duration: configuration.resolvedReleaseDuration,
+            bounce: configuration.resolvedReleaseBounce,
+            initialVelocity: DrawerMotion.initialVelocity(
+                velocity,
+                offsetSign: offsetSign,
+                from: currentOffset,
+                to: targetOffset
+            )
         )
     }
 
