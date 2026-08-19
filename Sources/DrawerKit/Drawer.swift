@@ -149,8 +149,17 @@ public struct Drawer<Panel: View, Content: View>: View {
             return AnyShape(RoundedRectangle(cornerRadius: cornerRadius))
         }
 
+        // A bare `ConcentricRectangle` resolves against an ancestor container shape, and the
+        // drawer's content has none — it sits in the app's root, not in a rounded container — so
+        // it came out square. The display's own radius is the floor instead; a host that does put
+        // the drawer inside a rounded container still gets a shape concentric with it.
         if #available(iOS 26, macOS 26, *) {
-            return AnyShape(ConcentricRectangle())
+            return AnyShape(
+                ConcentricRectangle(
+                    corners: .concentric(minimum: .fixed(DisplayCornerRadius.current)),
+                    isUniform: true
+                )
+            )
         }
 
         return AnyShape(RoundedRectangle(cornerRadius: DisplayCornerRadius.current))
